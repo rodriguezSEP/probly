@@ -26,7 +26,6 @@ def decompose(x_train, y_train, x_test, mode, seed=SEED):
     dec = ensemble_decomposition(
         x_train, y_train, x_test, k=K, resample=mode, device="cuda", seed=seed,
     )
-    # Falls die Attribute bei dir anders heissen / Methoden sind: hier anpassen.
     total = np.asarray(dec.total)
     alea = np.asarray(dec.aleatoric)
     epi = np.asarray(dec.epistemic)
@@ -60,7 +59,6 @@ x_ref, _ = make_moons(n_samples=1000, noise=NOISE, random_state=999)
 far = pairwise_distances(grid, x_ref).min(axis=1) > 1.0
 near = ~far
 
-fig, (ax_epi, ax_alea) = plt.subplots(1, 2, figsize=(12, 4.5))
 res = {m: {"epi_near": [], "epi_far": [], "alea_near": []} for m in MODES}
 for mode in MODES:
     for seed in SEEDS:
