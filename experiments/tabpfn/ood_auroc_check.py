@@ -15,7 +15,6 @@ N_TRAIN = 100
 N_ID = 300
 N_OOD = 300
 SCORES = ["epistemisch", "aleatorisch", "total"]
-OOD_SETS = ["weit", "mittel"]
 CENTERS = {
     "weit_ro": [4.0, 3.0],
     "weit_lu": [-3.0, -2.0],
@@ -32,7 +31,6 @@ def decompose(x_train, y_train, x_test, mode, seed):
     dec = ensemble_decomposition(
         x_train, y_train, x_test, k=K, resample=mode, seed=seed, device=DEVICE,
     )
-    # Falls die Attribute bei dir anders heissen / Methoden sind: hier anpassen.
     alea = np.asarray(dec.aleatoric)
     epi = np.asarray(dec.epistemic)
     return {"epistemisch": epi, "aleatorisch": alea, "total": alea + epi}
