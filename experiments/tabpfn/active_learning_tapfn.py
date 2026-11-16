@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import matplotlib.pyplot as plt
 from sklearn.datasets import load_breast_cancer
-from tabpfn import TabPFNClassifier
 from sklearn.model_selection import train_test_split
+from tabpfn import TabPFNClassifier
 
 from probly.evaluation.active_learning import (
     MarginSampling,
@@ -21,22 +21,12 @@ INITIAL_SIZE = 30
 QUERY_SIZE = 30
 N_ITERATIONS = 15
 
-# %%
-# Data preparation
-# ----------------
-# Load the breast_cancer dataset and split
-# into 80 % train / 20 % test. Limit testsamples. We start with only 30 labeled samples to make
-# the advantage of informed query selection clearly visible.
-
 X, y = load_breast_cancer(return_X_y=True)
 x_train, x_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=SEED,
 )
 x_test, y_test = x_test[:100], y_test[:100]
 
-# %%
-# Run active learning
-# -------------------
 # We run two strategies side by side: margin sampling (queries samples where
 # the model is most confused between its top two class predictions) and
 # random selection (baseline). A bare ``TabPFNClassifier`` is used directly
@@ -68,8 +58,6 @@ for name, strategy in strategies.items():
         eces.append(compute_ece(probs, state.pool.y_test))
         labeled_sizes.append(state.pool.n_labeled)
 
-    # NAUC (normalized area under the accuracy curve) summarizes how quickly
-    # a strategy reaches good accuracy. Higher is better.
     nauc = compute_nauc(accuracies)
     results[name] = {
         "accuracies": accuracies,
@@ -77,14 +65,6 @@ for name, strategy in strategies.items():
         "labeled_sizes": labeled_sizes,
     }
     print(f"{name:20s}  final acc: {accuracies[-1]:.3f}  ECE: {eces[-1]:.3f}  NAUC: {nauc:.3f}")
-
-
-# %%
-# Plot accuracy and calibration
-# -----------------------------
-# Margin sampling reaches higher accuracy faster because it queries the
-# samples the model is most confused about. The ECE (expected calibration
-# error) panel shows how well-calibrated the predictions are at each step.
 
 fig, (ax_acc, ax_ece) = plt.subplots(1, 2, figsize=(12, 5))
 
