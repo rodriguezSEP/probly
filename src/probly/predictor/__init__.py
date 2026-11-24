@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from probly.lazy_types import FLAX_MODULE, LAPLACE_BASE, SKLEARN_MODULE, TORCH_MODULE
+from probly.lazy_types import FLAX_MODULE, LAPLACE_BASE, SKLEARN_MODULE, TABICL_REGRESSOR, TORCH_MODULE
 
 from ._common import (
     BernoulliDistributionPredictor,
@@ -49,6 +49,16 @@ def _(_: type[object]) -> None:
 @predict.delayed_register(LAPLACE_BASE)
 def _(_: type[object]) -> None:
     from . import laplace as laplace  # noqa: PLC0415
+
+
+@predict.delayed_register(TABICL_REGRESSOR)
+def _(_: type[object]) -> None:
+    from . import tabicl as tabicl  # noqa: PLC0415
+
+
+@predict_raw.delayed_register(TABICL_REGRESSOR)
+def _(_: type[object]) -> None:
+    from . import tabicl as tabicl  # noqa: PLC0415
 
 
 __all__ = [

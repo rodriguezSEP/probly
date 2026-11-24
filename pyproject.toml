@@ -154,6 +154,9 @@ dev = [
     { include-group = "all_ml" },
     { include-group = "benchmark" },
 ]
+tabicl = [
+    "tabicl>=2.2.0",
+]
 
 [tool.uv.dependency-groups]
 docs = { requires-python = ">=3.13,<3.15" }
