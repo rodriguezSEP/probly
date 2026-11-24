@@ -9,6 +9,7 @@ picked up as a categorical distribution predictor automatically.
 from __future__ import annotations
 
 import numpy as np
+
 from tabicl import TabICLRegressor
 
 from ._common import GaussianDistributionPredictor, predict_raw
