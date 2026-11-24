@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Self, cast, override
 
 from ndlike.array_like import (
+    AnyNumpyLike,
     ArrayAPIVersion,
     ArrayFlagsLike,
     NumpyLike,
@@ -18,7 +19,7 @@ from ndlike.array_like import (
 )
 import numpy as np
 
-from probly.representation.sample._common import Sample, SampleAxis, create_sample
+from probly.representation.sample._common import Sample, SampleAxis, create_sample, track_sample_axis_after_broadcast
 from probly.representation.sample.axis_tracking import track_axis
 from probly.representation.sample.numpy_functions import (
     NumpySampleInternals,
@@ -33,14 +34,25 @@ if TYPE_CHECKING:
 
     import jax
     from jax.sharding import Sharding
-    from ndlike.jax_like import JaxLikeImplementation
-    from ndlike.torch_like import TorchLikeImplementation
     from numpy.typing import DTypeLike
     import torch
 
+    from probly.representation.sample.jax import JaxSample
+    from probly.representation.sample.torch import TorchSample
+
 
 @dataclass(frozen=True, slots=True, weakref_slot=True)
-class NumpySample[D: NumpyLike | np.ndarray](NumpyLikeImplementation[D], Sample[D]):
+class NumpySample[D: AnyNumpyLike | np.ndarray](
+    NumpyLikeImplementation[
+        "NumpySample[D]",
+        "NumpySample[D] | D | int | float | complex",
+        "NumpySample[D] | D",
+        D,
+        "NumpySample[D] | D",
+        "NumpySample[np.ndarray]",
+    ],
+    Sample[D],
+):
     """A sample of predictions stored in a numpy array."""
 
     array: D
@@ -146,37 +158,35 @@ class NumpySample[D: NumpyLike | np.ndarray](NumpyLikeImplementation[D], Sample[
         """Get the array namespace of the underlying array."""
         return cast("Any", self.array).__array_namespace__(api_version=api_version)
 
-    # ty 0.0.82 cannot bind protocol properties through a union-bounded TypeVar.
-    # Keep suppressions local so unused-ignore-comment flags them once fixed.
     @property
     def dtype(self) -> np.dtype:
         """The data type of the underlying array."""
-        return self.array.dtype  # ty: ignore[invalid-attribute-access]
+        return self.array.dtype
 
     @property
     def device(self) -> str:
         """The device of the underlying array."""
-        return self.array.device  # ty: ignore[invalid-attribute-access]
+        return self.array.device
 
     @property
     def ndim(self) -> int:
         """The number of dimensions of the underlying array."""
-        return self.array.ndim  # ty: ignore[invalid-attribute-access]
+        return self.array.ndim
 
     @property
     def shape(self) -> tuple[int, ...]:
         """The shape of the underlying array."""
-        return self.array.shape  # ty: ignore[invalid-attribute-access]
+        return self.array.shape
 
     @property
     def size(self) -> int:
         """The total number of elements in the underlying array."""
-        return self.array.size  # ty: ignore[invalid-attribute-access]
+        return self.array.size
 
     @override
     @property
     def flags(self) -> ArrayFlagsLike:
-        return self.array.flags  # ty: ignore[invalid-attribute-access]
+        return self.array.flags
 
     @property
     def sample_size(self) -> int:
@@ -194,8 +204,8 @@ class NumpySample[D: NumpyLike | np.ndarray](NumpyLikeImplementation[D], Sample[
     def sample_mean(self) -> D:
         """Compute the mean of the sample."""
         if self.weights is not None:
-            return np.average(self.array, axis=self.sample_axis, weights=self.weights)
-        return np.mean(self.array, axis=self.sample_axis)
+            return cast("D", np.average(self.array, axis=self.sample_axis, weights=self.weights))
+        return cast("D", np.mean(self.array, axis=self.sample_axis))
 
     @override
     def sample_std(self, ddof: int = 0) -> D:
@@ -203,7 +213,7 @@ class NumpySample[D: NumpyLike | np.ndarray](NumpyLikeImplementation[D], Sample[
         if self.weights is not None:
             return np.sqrt(self.sample_var(ddof=ddof))  # ty:ignore[invalid-return-type]
 
-        return np.std(self.array, axis=self.sample_axis, ddof=ddof)
+        return cast("D", np.std(self.array, axis=self.sample_axis, ddof=ddof))
 
     @override
     def sample_var(self, ddof: int = 0) -> D:
@@ -216,9 +226,9 @@ class NumpySample[D: NumpyLike | np.ndarray](NumpyLikeImplementation[D], Sample[
                 raise ValueError(msg)
             average = np.average(array, axis=self.sample_axis, weights=weights, keepdims=True)
             variance = np.average((array - average) ** 2, axis=self.sample_axis, weights=weights)
-            return variance
+            return cast("D", variance)
 
-        return np.var(array, axis=self.sample_axis, ddof=ddof)
+        return cast("D", np.var(array, axis=self.sample_axis, ddof=ddof))
 
     @override
     def concat(self, other: Sample[D]) -> Self:
@@ -252,7 +262,7 @@ class NumpySample[D: NumpyLike | np.ndarray](NumpyLikeImplementation[D], Sample[
         moved_array = np.moveaxis(self.array, self.sample_axis, new_sample_axis)  # ty:ignore[invalid-argument-type]
         return type(self)(array=moved_array, sample_axis=new_sample_axis, weights=self.weights)
 
-    def __getitem__(self, index: ToIndices) -> NumpyLikeImplementation[D] | D:
+    def __getitem__(self, index: ToIndices) -> NumpySample[D] | D:
         """Get a sample by index.
 
         Args:
@@ -315,36 +325,68 @@ class NumpySample[D: NumpyLike | np.ndarray](NumpyLikeImplementation[D], Sample[
         Returns:
             The result of applying the ufunc.
         """
-        new_sample_axis: int | None = self.sample_axis
+        samples = [value for value in inputs if isinstance(value, NumpySample)]
+        primary = samples[0] if samples else None
+        new_sample_axis = primary.sample_axis if primary is not None else None
         arrays = [x.array if isinstance(x, NumpySample) else x for x in inputs]
 
-        if method in ("__call__", "reduce", "reduceat", "accumulate") and "out" in kwargs:
-            outs = kwargs["out"]
-            if outs is not None:
-                if not isinstance(outs, tuple):
-                    outs = (outs,)
-                cast_outs = tuple(o.array if isinstance(o, NumpySample) else o for o in outs)
+        out = kwargs.get("out")
+        outs = out if isinstance(out, tuple) else ((out,) if out is not None else None)
+        if outs is not None:
+            cast_outs = tuple(value.array if isinstance(value, NumpySample) else value for value in outs)
+            if method in ("__call__", "outer"):
                 kwargs["out"] = cast_outs
-        else:
-            outs = None
+            else:
+                if len(cast_outs) != 1:
+                    msg = f"ufunc method {method!r} expects a single out value."
+                    raise TypeError(msg)
+                kwargs["out"] = cast_outs[0]
 
         result = getattr(ufunc, method)(*arrays, **kwargs)
 
-        if method in {"reduce", "reduceat", "accumulate"}:
-            axis: int | tuple[int, ...] = kwargs.get("axis", 0)
-            keepdims: bool = method == "reduce" and kwargs.get("keepdims", False)
-            new_sample_axis = track_sample_axis_after_reduction(self.sample_axis, self.ndim, axis, keepdims)
+        if primary is not None and method == "reduce":
+            axis = kwargs.get("axis", inputs[1] if len(inputs) > 1 else 0)
+            keepdims = kwargs.get("keepdims", False)
+            new_sample_axis = track_sample_axis_after_reduction(primary.sample_axis, primary.ndim, axis, keepdims)
+        elif primary is not None and method == "reduceat":
+            axis = kwargs.get("axis", inputs[2] if len(inputs) > 2 else 0)
+            if axis % primary.ndim == primary.sample_axis:
+                new_sample_axis = None
         elif method in ("at", "outer"):
             new_sample_axis = None
 
-        if outs is not None:
-            if len(outs) == 1:
-                return outs[0]
-            return outs
+        def wrap(value: Any) -> Any:  # noqa: ANN401
+            if not isinstance(value, NumpyLike):
+                return value
+            sample_axis = new_sample_axis
+            weights = primary.weights if primary is not None else None
+            if method == "__call__" and ufunc.signature is None:
+                sample_axis = track_sample_axis_after_broadcast(
+                    ((sample.sample_axis, sample.ndim) for sample in samples), value.ndim
+                )
+                if sample_axis is None:
+                    return value
+                candidates = [
+                    np.broadcast_to(sample.weights, (value.shape[sample_axis],))
+                    for sample in samples
+                    if sample.weights is not None
+                ]
+                if any(not np.array_equal(candidates[0], candidate) for candidate in candidates[1:]):
+                    msg = "Elementwise operands must have matching sample weights."
+                    raise ValueError(msg)
+                weights = candidates[0] if candidates else None
+            if sample_axis is None:
+                return value
+            return type(self)(array=value, sample_axis=sample_axis, weights=weights)
 
-        if new_sample_axis is not None and isinstance(result, np.ndarray):
-            return type(self)(result, sample_axis=new_sample_axis, weights=self.weights)
-        return result
+        output_count = ufunc.nout if method in ("__call__", "outer") else 1
+        result_items = result if output_count > 1 else (result,)
+        out_items = outs or (None,) * output_count
+        outputs = tuple(
+            original if original is not None else wrap(value)
+            for original, value in zip(out_items, result_items, strict=True)
+        )
+        return outputs if output_count > 1 else outputs[0]
 
     def __array_function__(
         self,
@@ -381,8 +423,7 @@ class NumpySample[D: NumpyLike | np.ndarray](NumpyLikeImplementation[D], Sample[
         copy: bool = True,
     ) -> Self:
         """Cast the stored array while preserving the sample axis and weights."""
-        # The union-bound Self binding has the same ty limitation as metadata access.
-        array = self.array.astype(dtype, order=order, casting=casting, subok=subok, copy=copy)  # ty: ignore[invalid-argument-type, no-matching-overload]
+        array = self.array.astype(dtype, order=order, casting=casting, subok=subok, copy=copy)
         if array is self.array:
             return self
         return type(self)(array=array, sample_axis=self.sample_axis, weights=self.weights)
@@ -397,7 +438,7 @@ class NumpySample[D: NumpyLike | np.ndarray](NumpyLikeImplementation[D], Sample[
         copied_array = cast("Any", self.array).copy(order=order)
         return type(self)(array=copied_array, sample_axis=self.sample_axis, weights=self.weights)
 
-    def __eq__(self, value: Any) -> Self:  # noqa: ANN401, PYI032  # ty:ignore[invalid-method-override]
+    def __eq__(self, value: Any) -> NumpySample[np.ndarray]:  # noqa: ANN401, PYI032
         """Vectorized equality comparison."""
         return np.equal(self, value)
 
@@ -442,7 +483,7 @@ class NumpySample[D: NumpyLike | np.ndarray](NumpyLikeImplementation[D], Sample[
 
     def __torch_like__(
         self, dtype: torch.dtype | None = None, /, *, device: torch.device | str | None = None, copy: bool = False
-    ) -> TorchLikeImplementation[Any]:
+    ) -> TorchSample[Any]:
         """Convert to a TorchSample."""
         from ndlike.torch_like import to_torch_like  # noqa: PLC0415
 
@@ -463,7 +504,7 @@ class NumpySample[D: NumpyLike | np.ndarray](NumpyLikeImplementation[D], Sample[
         *,
         device: jax.Device | Sharding | None = None,
         copy: bool = False,
-    ) -> JaxLikeImplementation[Any]:
+    ) -> JaxSample[Any]:
         """Convert to a JaxSample."""
         from ndlike.jax_like import to_jax_like  # noqa: PLC0415
 
@@ -479,7 +520,7 @@ class NumpySample[D: NumpyLike | np.ndarray](NumpyLikeImplementation[D], Sample[
 
 
 @numpy_sample_internals.register(NumpySample)
-def _[D: NumpyLike](array: NumpySample[D]) -> NumpySampleInternals[D]:
+def _[D: AnyNumpyLike | np.ndarray](array: NumpySample[D]) -> NumpySampleInternals[D]:
     """Get the sample dimension of an NumpySample."""
     return NumpySampleInternals(
         create=type(array),

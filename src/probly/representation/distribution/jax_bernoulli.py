@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from abc import ABC
 from dataclasses import dataclass, field
-from typing import ClassVar, override
+from typing import TYPE_CHECKING, Any, ClassVar, override
 
 import jax
 from jax import numpy as jnp
+from jax.core import Tracer
 from jax.experimental import checkify
 from jax.scipy.special import logit
 from ndlike.jax_functions import jax_stack
+from ndlike.jax_like import AnyJaxLike
 
 from probly.representation.distribution._common import (
     BernoulliDistribution,
@@ -25,13 +26,21 @@ from probly.representation.distribution.jax_categorical import (
 )
 from probly.representation.sample.jax import JaxSample
 
+if TYPE_CHECKING:
+    from probly.representation.representation import Representation
 
-class JaxBernoulliDistribution(BernoulliDistribution, JaxCategoricalDistribution, ABC):  # ty:ignore[conflicting-metaclass]
+
+class JaxBernoulliDistribution[  # ty:ignore[conflicting-metaclass]
+    OwnerT: AnyJaxLike = "JaxBernoulliDistribution[Any]"
+](BernoulliDistribution[jax.Array], JaxCategoricalDistribution[OwnerT]):
     """A Bernoulli distribution represented as a categorical dstribution with 2 classes."""
 
 
 @dataclass(frozen=True, slots=True, weakref_slot=True)
-class JaxProbabilityBernoulliDistribution(JaxProbabilityCategoricalDistribution, JaxBernoulliDistribution):
+class JaxProbabilityBernoulliDistribution(
+    JaxBernoulliDistribution["JaxProbabilityBernoulliDistribution"],
+    JaxProbabilityCategoricalDistribution["JaxProbabilityBernoulliDistribution"],
+):
     """A Bernoulli distribution represented by the probability of class 1."""
 
     array: jax.Array = field()
@@ -64,7 +73,10 @@ class JaxProbabilityBernoulliDistribution(JaxProbabilityCategoricalDistribution,
 
 
 @dataclass(frozen=True, slots=True, weakref_slot=True)
-class JaxLogitBernoulliDistribution(JaxLogitCategoricalDistribution, JaxBernoulliDistribution):
+class JaxLogitBernoulliDistribution(
+    JaxBernoulliDistribution["JaxLogitBernoulliDistribution"],
+    JaxLogitCategoricalDistribution["JaxLogitBernoulliDistribution"],
+):
     """A Bernoulli distribution represented by class-1 log-odds."""
 
     array: jax.Array = field()
@@ -92,17 +104,17 @@ class JaxBernoulliDistributionSample(  # ty:ignore[conflicting-metaclass]
 ):
     """Sample type for jax Bernoulli distributins."""
 
-    sample_space: ClassVar[type[BernoulliDistribution]] = JaxBernoulliDistribution
+    sample_space: ClassVar[type[Representation]] = JaxBernoulliDistribution
 
 
-@create_bernoulli_distribution.register(jax.Array)
+@create_bernoulli_distribution.register((jax.Array, Tracer))
 def _jax_create_bernoulli_distribution(data: jax.Array) -> BernoulliDistribution:
     if data.ndim >= 2 and data.shape[-1] <= 2:
         data = data[..., -1]
     return JaxProbabilityBernoulliDistribution(data)
 
 
-@create_bernoulli_distribution_from_logits.register(jax.Array)
+@create_bernoulli_distribution_from_logits.register((jax.Array, Tracer))
 def _jax_create_bernoulli_distribution_from_logits(data: jax.Array) -> BernoulliDistribution:
     if data.ndim >= 2 and data.shape[-1] == 2:
         data = data[..., -1] - data[..., 0]
