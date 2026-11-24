@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, override
 
 import jax
 from jax import numpy as jnp
+from jax.core import Tracer
 from jax.experimental import checkify
 from jax.scipy.stats import norm
 from ndlike.jax_functions import jax_add, jax_stack, jax_subtract
@@ -27,16 +28,20 @@ if TYPE_CHECKING:
     from jax._src.typing import ArrayLike
     from numpy.typing import DTypeLike
 
+    from probly.representation.representation import Representation
+
 
 @dataclass(frozen=True, slots=True, weakref_slot=True)
-class JaxGaussianDistribution(JaxAxisProtected[jax.Array], GaussianDistribution[jax.Array]):
+class JaxGaussianDistribution(
+    JaxAxisProtected["JaxGaussianDistribution", "JaxGaussianDistribution | jax.Array | float"],
+    GaussianDistribution[jax.Array],
+):
     """Gaussian distribution with array parameters."""
 
     mean: jax.Array = field()
     var: jax.Array = field()
 
-    type: Literal["gaussian"] = "gaussian"
-    protected_axes: ClassVar[dict[str, int]] = {"mean": 0, "var": 0}
+    type: ClassVar[Literal["gaussian"]] = "gaussian"
     permitted_functions: ClassVar[set[Callable]] = {jax_add, jax_subtract}
 
     def __post_init__(self) -> None:
@@ -107,7 +112,7 @@ class JaxGaussianDistribution(JaxAxisProtected[jax.Array], GaussianDistribution[
         return np.asarray(stacked, dtype=dtype, copy=copy)
 
     @override
-    def __eq__(self, other: Any) -> jax.Array:  # ty: ignore[invalid-method-override] # noqa: PYI032
+    def __eq__(self, other: Any) -> jax.Array:  # noqa: PYI032
         """Compare two Gaussians by their parameter."""
         if not isinstance(other, JaxGaussianDistribution):
             return NotImplemented
@@ -123,7 +128,7 @@ class JaxGaussianDistribution(JaxAxisProtected[jax.Array], GaussianDistribution[
         return object.__hash__(self)
 
 
-@create_gaussian_distribution.register(jax.Array)
+@create_gaussian_distribution.register((jax.Array, Tracer))
 def _(mean: jax.Array, var: jax.Array | None = None) -> JaxGaussianDistribution:
     """Create a JaxGaussianDistribution from jax arrays."""
     if var is None:
@@ -140,7 +145,7 @@ class JaxGaussianDistributionSample(  # ty:ignore[conflicting-metaclass]
 ):
     """Sample type for empirical second-order Gaussian distributions."""
 
-    sample_space: ClassVar[type[GaussianDistribution]] = JaxGaussianDistribution
+    sample_space: ClassVar[type[Representation]] = JaxGaussianDistribution
 
     @override
     @classmethod

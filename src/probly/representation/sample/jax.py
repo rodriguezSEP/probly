@@ -5,9 +5,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Self, cast, override
+from typing import TYPE_CHECKING, Any, ClassVar, Self, cast, override
 
 import jax
+from jax.core import Tracer
 import jax.numpy as jnp
 from ndlike.array_like import ToIndices, to_numpy_like
 from ndlike.jax_functions import (
@@ -19,7 +20,7 @@ from ndlike.jax_functions import (
     jax_std,
     jax_var,
 )
-from ndlike.jax_like import JaxLike, JaxLikeImplementation, to_jax_like
+from ndlike.jax_like import AnyJaxLike, JaxLike, JaxLikeImplementation, to_jax_like
 import numpy as np
 
 from probly.representation.sample._common import Sample, SampleAxis, create_sample
@@ -37,12 +38,23 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, slots=True, weakref_slot=True)
-class JaxSample[D: JaxLike | jax.Array](JaxLikeImplementation[D], Sample[D]):
+class JaxSample[D: AnyJaxLike | jax.Array](
+    JaxLikeImplementation[
+        "JaxSample[D]",
+        "JaxSample[D] | D | int | float | complex",
+        "JaxSample[D] | D",
+        D,
+        "JaxSample[D] | D",
+        "JaxSample[jax.Array]",
+    ],
+    Sample[D],
+):
     """A sample implementation for JAX arrays."""
 
     array: D
     sample_axis: int
     weights: jax.Array | None = None
+    pytree_children: ClassVar[tuple[str, ...]] = ("array", "weights")
 
     def __post_init__(self) -> None:
         """Validate the sample_axis."""
@@ -143,7 +155,7 @@ class JaxSample[D: JaxLike | jax.Array](JaxLikeImplementation[D], Sample[D]):
         return len(self.array)
 
     @override
-    def __iter__(self) -> Iterator[Any]:
+    def __iter__(self) -> Iterator[JaxSample[D] | D]:
         """Iterate over axis 0 of the sample wrapper."""
         for index in range(len(self)):
             yield self[index]
@@ -161,17 +173,15 @@ class JaxSample[D: JaxLike | jax.Array](JaxLikeImplementation[D], Sample[D]):
         del api_version
         return cast("Any", self.array).__array_namespace__()
 
-    # ty 0.0.82 cannot bind protocol properties through a union-bounded TypeVar.
-    # Keep suppressions local so unused-ignore-comment flags them once fixed.
     @property
     def dtype(self) -> DTypeLike:
         """The data type of the underlying array."""
-        return self.array.dtype  # ty: ignore[invalid-attribute-access]
+        return self.array.dtype
 
     @property
     def device(self) -> Any:  # noqa: ANN401
         """The device of the underlying array."""
-        return self.array.device  # ty: ignore[invalid-attribute-access]
+        return self.array.device
 
     @property
     def sharding(self) -> Sharding:
@@ -185,22 +195,22 @@ class JaxSample[D: JaxLike | jax.Array](JaxLikeImplementation[D], Sample[D]):
     @property
     def ndim(self) -> int:
         """The number of dimensions of the underlying array."""
-        return self.array.ndim  # ty: ignore[invalid-attribute-access]
+        return self.array.ndim
 
     @property
     def shape(self) -> tuple[int, ...]:
         """The shape of the underlying array."""
-        return self.array.shape  # ty: ignore[invalid-attribute-access]
+        return self.array.shape
 
     @property
     def size(self) -> int:
         """The total number of elements in the underlying array."""
-        return self.array.size  # ty: ignore[invalid-attribute-access]
+        return self.array.size
 
     @property
     def at(self) -> Any:  # noqa: ANN401
         """The indexed update helper of the underlying array."""
-        return self.array.at  # ty: ignore[invalid-attribute-access]
+        return self.array.at
 
     @override
     def block_until_ready(self) -> Self:
@@ -311,7 +321,7 @@ class JaxSample[D: JaxLike | jax.Array](JaxLikeImplementation[D], Sample[D]):
         moved_array = jax_moveaxis(cast("Any", self.array), self.sample_axis, new_sample_axis)
         return type(self)(array=cast("D", moved_array), sample_axis=new_sample_axis, weights=self.weights)
 
-    def __getitem__(self, index: ToIndices) -> Any:  # noqa: ANN401
+    def __getitem__(self, index: ToIndices) -> JaxSample[D] | D:
         """Get a sample by index.
 
         Args:
@@ -460,7 +470,7 @@ class JaxSample[D: JaxLike | jax.Array](JaxLikeImplementation[D], Sample[D]):
         *,
         device: Device | Sharding | None = None,
         copy: bool = False,
-    ) -> JaxLikeImplementation[Any]:
+    ) -> Self:
         """Convert to a JaxLike.
 
         Args:
@@ -511,6 +521,6 @@ def _(sample: JaxSample) -> JaxSampleInternals[jax.Array]:
 
 
 create_sample.register(
-    jax.Array | JaxLikeImplementation,
+    jax.Array | Tracer | JaxLikeImplementation,
     JaxSample.from_iterable,
 )

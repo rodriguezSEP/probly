@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from abc import abstractmethod
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast, override
 
 import jax
+from jax.core import Tracer
 import jax.numpy as jnp
 from ndlike.jax_functions import jax_mean
 from ndlike.protected_axis.jax import JaxAxisProtected
@@ -55,7 +56,7 @@ def _sample_probabilities(
     return sample_values.probabilities
 
 
-class JaxCategoricalCredalSet(CategoricalCredalSet, ABC):
+class JaxCategoricalCredalSet(CategoricalCredalSet):
     """Base class for jax-backed categorical credal sets."""
 
     @override
@@ -78,7 +79,7 @@ class JaxCategoricalCredalSet(CategoricalCredalSet, ABC):
 
 @dataclass(frozen=True, slots=True, weakref_slot=True)  # ty:ignore[conflicting-metaclass]
 class JaxConvexCredalSet(
-    JaxAxisProtected[Any],
+    JaxAxisProtected["JaxConvexCredalSet"],
     JaxCategoricalCredalSet,
     ConvexCredalSet,
 ):
@@ -119,20 +120,19 @@ class JaxConvexCredalSet(
     @property
     def barycenter(self) -> JaxCategoricalDistribution:
         """Compute the barycenter of the convex credal set as the mean of the vertices."""
-        return jax_mean(self.tensor, axis=-1)  # ty:ignore[invalid-return-type]
+        return jax_mean(self.tensor, axis=-1)
 
 
 @dataclass(frozen=True, slots=True, weakref_slot=True)  # ty:ignore[conflicting-metaclass]
 class JaxDistanceBasedCredalSet(
-    JaxAxisProtected[Any],
+    JaxAxisProtected["JaxDistanceBasedCredalSet"],
     JaxCategoricalCredalSet,
     DistanceBasedCredalSet,
 ):
     """Distance-based credal set around a nominal categorical distribution."""
 
-    nominal: JaxCategoricalDistribution
-    radius: jax.Array
-    protected_axes: ClassVar[dict[str, int]] = {"nominal": 0, "radius": 0}
+    nominal: JaxCategoricalDistribution = field()
+    radius: jax.Array = field()
 
     def __post_init__(self) -> None:
         """Validate that nominal is a valid categorical distribution and radius is non-negative."""
@@ -197,7 +197,7 @@ _LEVEL_SET_SAMPLES = 10_000
 
 @dataclass(frozen=True, slots=True, weakref_slot=True)  # ty:ignore[conflicting-metaclass]
 class JaxDirichletLevelSetCredalSet(
-    JaxAxisProtected[Any],
+    JaxAxisProtected["JaxDirichletLevelSetCredalSet"],
     JaxCategoricalCredalSet,
     DirichletLevelSetCredalSet,
 ):
@@ -207,9 +207,8 @@ class JaxDirichletLevelSetCredalSet(
     ``threshold`` times the peak density.
     """
 
-    alphas: jax.Array
-    threshold: jax.Array
-    protected_axes: ClassVar[dict[str, int]] = {"alphas": 1, "threshold": 0}
+    alphas: jax.Array = field()
+    threshold: jax.Array = field()
 
     def __post_init__(self) -> None:
         """Validate alpha parameters and threshold."""
@@ -333,15 +332,14 @@ class JaxDirichletLevelSetCredalSet(
 
 @dataclass(frozen=True, slots=True, weakref_slot=True)  # ty:ignore[conflicting-metaclass]
 class JaxProbabilityIntervalsCredalSet(
-    JaxAxisProtected[Any],
+    JaxAxisProtected["JaxProbabilityIntervalsCredalSet"],
     JaxCategoricalCredalSet,
     ProbabilityIntervalsCredalSet,
 ):
     """Credal set represented by lower/upper categorical bounds."""
 
-    lower_bounds: jax.Array
-    upper_bounds: jax.Array
-    protected_axes: ClassVar[dict[str, int]] = {"lower_bounds": 1, "upper_bounds": 1}
+    lower_bounds: jax.Array = field()
+    upper_bounds: jax.Array = field()
 
     @override
     @classmethod
@@ -407,7 +405,7 @@ create_convex_credal_set.register(JaxSample, JaxConvexCredalSet.from_jax_sample)
 create_distance_based_credal_set.register(JaxSample, JaxDistanceBasedCredalSet.from_jax_sample)
 
 
-@create_probability_intervals_from_lower_upper_array.register(jax.Array)
+@create_probability_intervals_from_lower_upper_array.register((jax.Array, Tracer))
 def _create_probability_intervals_from_lower_upper_array(
     bounds: jax.Array,
 ) -> JaxProbabilityIntervalsCredalSet:
@@ -415,7 +413,7 @@ def _create_probability_intervals_from_lower_upper_array(
     return JaxProbabilityIntervalsCredalSet(reshaped[..., 0, :], reshaped[..., 1, :])
 
 
-@create_probability_intervals_from_bounds.register(jax.Array)
+@create_probability_intervals_from_bounds.register((jax.Array, Tracer))
 def _create_probability_intervals_from_bounds(
     probs: jax.Array, lower: jax.Array, upper: jax.Array
 ) -> JaxProbabilityIntervalsCredalSet:
@@ -442,7 +440,7 @@ def _broadcast_radius_to_batch(
     return radius_t
 
 
-@create_distance_based_credal_set_from_center_and_radius.register(jax.Array)
+@create_distance_based_credal_set_from_center_and_radius.register((jax.Array, Tracer))
 def _create_distance_based_credal_set_from_center_and_radius(
     center: jax.Array,
     radius: jax.Array,
@@ -467,7 +465,7 @@ def _create_distance_based_credal_set_from_categorical_distribution(
     )
 
 
-@create_dirichlet_level_set_credal_set.register(jax.Array)
+@create_dirichlet_level_set_credal_set.register((jax.Array, Tracer))
 def _create_dirichlet_level_set_from_array(
     alphas: jax.Array,
     threshold: jax.Array,
