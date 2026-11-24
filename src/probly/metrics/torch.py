@@ -11,28 +11,28 @@ Note:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import torch
 
 from probly.metrics import (
-    accuracy,
-    auc,
     average_interval_width,
-    average_precision_score,
     classwise_ece,
     convex_hull_coverage,
     coverage,
     efficiency,
     expected_calibration_error,
-    false_negative_rate,
-    false_positive_rate,
     precision_recall_curve,
-    roc_auc_score,
     roc_curve,
 )
-from probly.metrics._common import CREDAL_ROUND_DECIMALS
-from probly.metrics.numpy import _numpy_convex_hull_lp_coverage
+from probly.metrics._common import (
+    CREDAL_COVERAGE_EPSILON,
+    _expected_loss,
+    _log_probabilities,
+    _one_hot_argmax,
+    _probabilities,
+    _validate_labels,
+    log_loss_per_instance,
+)
+from probly.metrics.numpy import _numpy_convex_hull_lp_coverage, _validate_epsilon
 from probly.representation.conformal_set.torch import TorchIntervalConformalSet, TorchOneHotConformalSet
 from probly.representation.credal_set.torch import (
     TorchConvexCredalSet,
@@ -40,41 +40,11 @@ from probly.representation.credal_set.torch import (
     TorchDistanceBasedCredalSet,
     TorchProbabilityIntervalsCredalSet,
 )
-
-if TYPE_CHECKING:
-    from probly.representation.distribution.torch_categorical import TorchCategoricalDistribution
-
-
-@accuracy.register(torch.Tensor)
-def torch_accuracy(y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
-    """Compute top-1 classification accuracy for PyTorch tensors."""
-    labels = y_true.reshape(-1)
-    predicted = y_pred
-    if predicted.ndim == 2:
-        predicted = torch.argmax(predicted, dim=-1)
-    elif predicted.ndim != 1:
-        msg = f"accuracy expects predictions of shape (n,) or (n, k), got shape {tuple(predicted.shape)}."
-        raise ValueError(msg)
-    if predicted.shape[0] != labels.shape[0]:
-        msg = (
-            "accuracy labels must match predictions batch size. "
-            f"Got {labels.shape[0]} labels for {predicted.shape[0]} predictions."
-        )
-        raise ValueError(msg)
-    return (predicted == labels).float().mean()
-
-
-@auc.register(torch.Tensor)
-def torch_auc(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-    """Compute area under a curve using the trapezoid rule."""
-    return torch.trapezoid(y, x, dim=-1)
-
-
-@average_precision_score.register(torch.Tensor)
-def torch_average_precision_score(y_true: torch.Tensor, y_score: torch.Tensor) -> torch.Tensor:
-    """Compute average precision for PyTorch tensors."""
-    precision, recall, _ = precision_recall_curve(y_true, y_score)
-    return -torch.sum(torch.diff(recall, dim=-1) * precision[..., :-1], dim=-1)  # ty:ignore[invalid-argument-type, not-subscriptable]
+from probly.representation.distribution._common import CategoricalDistribution
+from probly.representation.distribution.torch_categorical import (
+    TorchCategoricalDistribution,
+    TorchProbabilityCategoricalDistribution,
+)
 
 
 def _binary_clf_curve(y_true: torch.Tensor, y_score: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -205,41 +175,6 @@ def torch_expected_calibration_error(y_prob: torch.Tensor, y_true: torch.Tensor,
     return total
 
 
-@false_positive_rate.register(torch.Tensor)
-def torch_false_positive_rate(y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
-    """Compute the false positive rate for PyTorch tensors."""
-    y = y_true.reshape(-1)
-    p = y_pred.reshape(-1)
-    if p.shape[0] != y.shape[0]:
-        msg = f"false_positive_rate y_true and y_pred must match in batch size. Got {y.shape[0]} and {p.shape[0]}."
-        raise ValueError(msg)
-    negatives = (y == 0).float()
-    false_positives = (p == 1).float() * negatives
-    # 0/0 yields NaN when there are no negative samples.
-    return false_positives.sum() / negatives.sum()
-
-
-@false_negative_rate.register(torch.Tensor)
-def torch_false_negative_rate(y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
-    """Compute the false negative rate for PyTorch tensors."""
-    y = y_true.reshape(-1)
-    p = y_pred.reshape(-1)
-    if p.shape[0] != y.shape[0]:
-        msg = f"false_negative_rate y_true and y_pred must match in batch size. Got {y.shape[0]} and {p.shape[0]}."
-        raise ValueError(msg)
-    positives = (y == 1).float()
-    false_negatives = (p == 0).float() * positives
-    # 0/0 yields NaN when there are no positive samples.
-    return false_negatives.sum() / positives.sum()
-
-
-@roc_auc_score.register(torch.Tensor)
-def torch_roc_auc_score(y_true: torch.Tensor, y_score: torch.Tensor) -> torch.Tensor:
-    """Compute area under the ROC curve for PyTorch tensors."""
-    fpr, tpr, _ = roc_curve(y_true, y_score)
-    return auc(fpr, tpr)  # ty:ignore[invalid-return-type]
-
-
 @roc_curve.register(torch.Tensor)
 def torch_roc_curve(y_true: torch.Tensor, y_score: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Compute ROC curve along the last axis."""
@@ -340,7 +275,12 @@ def _torch_interval_efficiency(y_pred: TorchIntervalConformalSet) -> float:
     return float((y_pred.tensor[..., 1] - y_pred.tensor[..., 0]).float().mean().item())
 
 
-def _torch_credal_containment_coverage(lower: torch.Tensor, upper: torch.Tensor, y_true: torch.Tensor) -> float:
+def _torch_credal_containment_coverage(
+    lower: torch.Tensor,
+    upper: torch.Tensor,
+    y_true: torch.Tensor,
+    epsilon: float = CREDAL_COVERAGE_EPSILON,
+) -> float:
     """Fraction of instances whose target lies inside the credal set's envelope.
 
     Dispatches on the shape of ``y_true``:
@@ -349,13 +289,18 @@ def _torch_credal_containment_coverage(lower: torch.Tensor, upper: torch.Tensor,
       when the true class is selected by the interval-dominance rule, i.e.
       ``upper[y] >= max_k lower[k]``.
     * **Probability vectors** (``y_true.dim() == lower.dim()``): covered when
-      ``lower[k] <= y_true[k] <= upper[k]`` for all classes ``k``.
+      the L1 distance from ``y_true`` to ``{p : lower <= p <= upper, sum(p) = 1}``
+      is at most ``epsilon``. For a target on the simplex this distance is
+      ``2 * max(a, b)`` with ``a`` the target mass above ``upper`` and ``b`` the
+      mass missing below ``lower``, the same L1 distance as in
+      :func:`~probly.metrics.convex_hull_coverage`.
 
     Args:
         lower: Lower probability envelope of shape ``(..., C)``.
         upper: Upper probability envelope of shape ``(..., C)``.
         y_true: Integer class labels of shape ``(...)`` or target probability
             tensors of shape ``(..., C)``.
+        epsilon: L1 tolerance for probability-vector targets.
 
     Returns:
         Mean containment indicator as a Python float.
@@ -368,24 +313,20 @@ def _torch_credal_containment_coverage(lower: torch.Tensor, upper: torch.Tensor,
         indices = y.to(dtype=torch.int64).unsqueeze(-1)
         covered = torch.gather(mask, -1, indices).squeeze(-1)
     else:
-        # Probability vectors: containment in [lower, upper] for all classes.
-        # Round before comparing so that tiny floating-point residuals in the
-        # lower envelope (softmax is never exactly 0) do not incorrectly
-        # exclude a target probability of 0.
-        scale = 10**CREDAL_ROUND_DECIMALS
-        lower_r = torch.round(lower * scale) / scale
-        upper_r = torch.round(upper * scale) / scale
-        y = y.to(dtype=lower.dtype)
-        covered = ((lower_r <= y) & (y <= upper_r)).all(dim=-1)
+        _validate_epsilon(epsilon)
+        # Probability vectors: L1 distance to the envelope intersected with the simplex, in the precision of the
+        # bounds because MPS has no float64. Rounding the inputs to that precision shifts the distance by at most
+        # two machine epsilons, so the slack keeps a distance that equals epsilon on the covered side.
+        dtype = torch.promote_types(lower.dtype, torch.float32)
+        lo, up, y = lower.to(dtype), upper.to(dtype), y.to(dtype)
+        above = torch.clamp(y - up, min=0.0).sum(dim=-1)
+        below = torch.clamp(lo - y, min=0.0).sum(dim=-1)
+        covered = 2.0 * torch.maximum(above, below) <= epsilon + 4.0 * torch.finfo(dtype).eps
     return float(covered.float().mean().item())
 
 
 def _torch_credal_interval_efficiency(lower: torch.Tensor, upper: torch.Tensor) -> float:
     """Efficiency of a credal set as ``1 - mean(upper - lower)``.
-
-    Bounds are rounded to ``CREDAL_ROUND_DECIMALS`` decimals before subtracting
-    so floating-point residuals (e.g. softmax outputs near 0) do not perturb
-    the width.
 
     Args:
         lower: Lower probability envelope of shape ``(N, C)``.
@@ -394,24 +335,24 @@ def _torch_credal_interval_efficiency(lower: torch.Tensor, upper: torch.Tensor) 
     Returns:
         Scalar in ``(-inf, 1]``; higher means a tighter (more efficient) credal set.
     """
-    scale = 10**CREDAL_ROUND_DECIMALS
-    lower_r = torch.round(lower * scale) / scale
-    upper_r = torch.round(upper * scale) / scale
-    return float(1.0 - (upper_r - lower_r).float().mean().item())
+    return float(1.0 - (upper - lower).float().mean().item())
 
 
 @coverage.register(TorchConvexCredalSet)
-def _torch_convex_coverage(y_pred: TorchConvexCredalSet, y_true: torch.Tensor) -> float:
+def _torch_convex_coverage(
+    y_pred: TorchConvexCredalSet, y_true: torch.Tensor, *, epsilon: float = CREDAL_COVERAGE_EPSILON
+) -> float:
     """Containment coverage for a convex credal set.
 
     Args:
         y_pred: Convex credal set.
         y_true: Target probability tensors of shape ``(N, C)``.
+        epsilon: L1 tolerance for probability-vector targets.
 
     Returns:
-        Fraction of instances where the target lies in ``[lower, upper]`` for all classes.
+        Fraction of instances whose target lies within L1 distance ``epsilon`` of the envelope.
     """
-    return _torch_credal_containment_coverage(y_pred.lower(), y_pred.upper(), y_true)
+    return _torch_credal_containment_coverage(y_pred.lower(), y_pred.upper(), y_true, epsilon)
 
 
 @efficiency.register(TorchConvexCredalSet)
@@ -457,17 +398,20 @@ def _torch_distance_efficiency(y_pred: TorchDistanceBasedCredalSet) -> float:
 
 
 @coverage.register(TorchProbabilityIntervalsCredalSet)
-def _torch_probability_intervals_coverage(y_pred: TorchProbabilityIntervalsCredalSet, y_true: torch.Tensor) -> float:
+def _torch_probability_intervals_coverage(
+    y_pred: TorchProbabilityIntervalsCredalSet, y_true: torch.Tensor, *, epsilon: float = CREDAL_COVERAGE_EPSILON
+) -> float:
     """Containment coverage for a probability-intervals credal set.
 
     Args:
         y_pred: Probability-intervals credal set.
         y_true: Target probability tensors of shape ``(N, C)``.
+        epsilon: L1 tolerance for probability-vector targets.
 
     Returns:
-        Fraction of instances where the target lies in ``[lower, upper]`` for all classes.
+        Fraction of instances whose target lies within L1 distance ``epsilon`` of the intervals.
     """
-    return _torch_credal_containment_coverage(y_pred.lower(), y_pred.upper(), y_true)
+    return _torch_credal_containment_coverage(y_pred.lower(), y_pred.upper(), y_true, epsilon)
 
 
 @efficiency.register(TorchProbabilityIntervalsCredalSet)
@@ -529,7 +473,7 @@ def _torch_convex_convex_hull_coverage(
     y_pred: TorchConvexCredalSet,
     y_true: TorchCategoricalDistribution,
     *,
-    epsilon: float = 0.0005,
+    epsilon: float = CREDAL_COVERAGE_EPSILON,
     **linprog_kwargs: object,
 ) -> object:
     """Hull coverage for a torch convex credal set; routes through the numpy LP solver.
@@ -540,3 +484,71 @@ def _torch_convex_convex_hull_coverage(
     vertices = y_pred.tensor.probabilities.detach().cpu().numpy()
     targets = y_true.probabilities.detach().cpu().numpy()
     return _numpy_convex_hull_lp_coverage(vertices, targets, epsilon, **linprog_kwargs)
+
+
+@_probabilities.register
+def torch_probabilities(probabilities: torch.Tensor) -> torch.Tensor:
+    """Return a torch tensor of probabilities unchanged."""
+    return probabilities
+
+
+@_log_probabilities.register
+def torch_log_probabilities(probabilities: torch.Tensor) -> torch.Tensor:
+    """Compute the log probabilities of a torch tensor."""
+    return torch.log(probabilities)
+
+
+def _torch_scoring_target(y_true: object, reference: torch.Tensor) -> torch.Tensor:
+    """Convert targets and validate labels without changing their dtype."""
+    target = y_true.probabilities if isinstance(y_true, CategoricalDistribution) else y_true
+    target = torch.as_tensor(target, device=reference.device)
+    if target.shape != reference.shape:
+        _validate_labels(
+            tuple(target.shape),
+            tuple(reference.shape),
+            is_integer=not (target.is_floating_point() or target.is_complex()),
+        )
+    return target
+
+
+@log_loss_per_instance.register(torch.Tensor)
+def torch_log_loss_per_instance(y_prob: torch.Tensor, y_true: object) -> torch.Tensor:
+    """Compute log loss without logging zero probabilities of classes with no target mass."""
+    target = _torch_scoring_target(y_true, y_prob)
+    if target.shape == y_prob.shape:
+        safe_probabilities = torch.where(target > 0, y_prob, torch.ones_like(y_prob))
+        return -(target * torch.log(safe_probabilities)).sum(dim=-1)
+    selected = torch.gather(y_prob, -1, target.long().unsqueeze(-1)).squeeze(-1)
+    return -torch.log(selected)
+
+
+@log_loss_per_instance.register(TorchCategoricalDistribution)
+def torch_categorical_log_loss_per_instance(y_prob: TorchCategoricalDistribution, y_true: object) -> torch.Tensor:
+    """Score categorical log probabilities directly, preserving extreme logits."""
+    return _torch_expected_loss(-y_prob.log_probabilities, y_true)
+
+
+@log_loss_per_instance.register(TorchProbabilityCategoricalDistribution)
+def torch_probability_categorical_log_loss_per_instance(
+    y_prob: TorchProbabilityCategoricalDistribution, y_true: object
+) -> torch.Tensor:
+    """Score normalized categorical probabilities with target-aware logarithms."""
+    return torch_log_loss_per_instance(y_prob.probabilities, y_true)
+
+
+@_one_hot_argmax.register
+def torch_one_hot_argmax(probabilities: torch.Tensor) -> torch.Tensor:
+    """One-hot encode the first maximum of each probability vector of a torch tensor."""
+    num_classes = probabilities.shape[-1]
+    argmax = torch.argmax(probabilities, dim=-1)
+    return torch.nn.functional.one_hot(argmax, num_classes).to(probabilities.dtype)
+
+
+@_expected_loss.register(torch.Tensor)
+def _torch_expected_loss(loss_vector: torch.Tensor, y_true: object) -> torch.Tensor:
+    """Reduce a per-label loss vector to the loss under integer labels or target probabilities."""
+    target = _torch_scoring_target(y_true, loss_vector)
+    if target.shape == loss_vector.shape:
+        # A class without target mass never occurs, so it adds no loss even where that loss is infinite.
+        return torch.where(target > 0, target * loss_vector, loss_vector.new_zeros(())).sum(dim=-1)
+    return torch.gather(loss_vector, -1, target.long().unsqueeze(-1)).squeeze(-1)

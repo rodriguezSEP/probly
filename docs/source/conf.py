@@ -24,6 +24,7 @@ from _sphinx_helpers import (  # noqa: E402
     remove_orphaned_example_pages,
     scrub_external_dependencies,
     stale_example_backreferences,
+    track_codeautolink_written_pages,
 )
 
 import probly  # noqa: E402
@@ -170,7 +171,7 @@ sphinx_gallery_conf = {
         "_sphinx_helpers.seed_gallery_rngs",
         "_sphinx_helpers.apply_gallery_plot_style",
     ),
-    "default_thumb_file": str(REPO_ROOT / "docs" / "source" / "_static" / "logo" / "logo_light.png"),
+    "default_thumb_file": str(REPO_ROOT / "docs" / "source" / "_static" / "logo" / "probly-mark-light-512.png"),
 }
 
 # loky recycles a worker by design when its memory use grows more than
@@ -344,19 +345,11 @@ def setup(app: Sphinx) -> None:
     for listener in list(app.events.listeners["build-finished"]):
         if listener.handler is embed_code_links:
             app.disconnect(listener.id)
-        # codeautolink injects its links into the written HTML at build-finished,
-        # but only for the docs it saw as outdated at builder-inited. On a clean
-        # build the autosummary stubs and gallery pages do not exist yet at that
-        # point, and an incremental build rewrites every page after a config
-        # change, so either way pages were written without links. Mark every
-        # page that is actually written instead.
+        # Only relink HTML rendered during this build. The extension's early
+        # get_outdated_docs() call can include cached, already-linked pages
+        # that Sphinx ultimately does not rewrite (notably after config changes).
         elif getattr(listener.handler, "__name__", "") == "apply_links":
-            codeautolink_state = listener.handler.__self__
-
-            def _mark_written(_app: Sphinx, _doctree: object, docname: str, state: object = codeautolink_state) -> None:
-                state.outdated_docs.add(str(Path(docname)))
-
-            app.connect("doctree-resolved", _mark_written)
+            track_codeautolink_written_pages(app, listener.handler.__self__)
 
     _orig_resolve = PythonDomain.resolve_xref
 
@@ -383,14 +376,14 @@ linkcode_resolve = make_linkcode_resolve(REPO_ROOT)
 html_theme = "furo"
 
 html_static_path = ["_static"]
-html_css_files = ["css/custom.css", "css/ecosystem.css", "css/jupyter.css"]
-html_js_files = ["js/ecosystem.js"]
+html_css_files = ["css/brand.css", "css/custom.css", "css/jupyter.css"]
+html_js_files = ["js/logo.js"]
 pygments_dark_style = "monokai"
 
 html_theme_options = {
     "sidebar_hide_name": True,
-    "light_logo": "logo/logo_light.png",
-    "dark_logo": "logo/logo_dark.png",
+    "light_logo": "logo/probly-logo-stacked-light.svg",
+    "dark_logo": "logo/probly-logo-stacked-dark.svg",
 }
 
 if _DOCS_FLAVOR == "latest":

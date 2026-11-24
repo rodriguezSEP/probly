@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar, Self
+from typing import TYPE_CHECKING, ClassVar, Self
 
 if TYPE_CHECKING:
     from probly.representation.sample._common import Sample
 
+import jax
 from jax import numpy as jnp
+from jax.core import Tracer
 from jax.experimental import checkify
 from ndlike.protected_axis.jax import JaxAxisProtected
 
@@ -33,7 +35,7 @@ def _jax_ensure_one_hot(value: object) -> jnp.ndarray:
 
 
 @dataclass(frozen=True, slots=True, weakref_slot=True)
-class JaxOneHotConformalSet(JaxAxisProtected[Any], OneHotConformalSet):
+class JaxOneHotConformalSet(JaxAxisProtected["JaxOneHotConformalSet"], OneHotConformalSet[jax.Array]):
     """One-hot conformal set backed by a JAX array."""
 
     array: jnp.ndarray
@@ -78,7 +80,7 @@ class JaxOneHotConformalSet(JaxAxisProtected[Any], OneHotConformalSet):
 
 
 @dataclass(frozen=True, slots=True, weakref_slot=True)
-class JaxIntervalConformalSet(JaxAxisProtected[Any], IntervalConformalSet):
+class JaxIntervalConformalSet(JaxAxisProtected["JaxIntervalConformalSet"], IntervalConformalSet[jax.Array]):
     """Interval conformal set backed by a JAX array storing lower and upper bounds."""
 
     array: jnp.ndarray
@@ -122,7 +124,7 @@ class JaxIntervalConformalSet(JaxAxisProtected[Any], IntervalConformalSet):
         return self.array[..., 1] - self.array[..., 0]
 
 
-create_onehot_conformal_set.register(jnp.ndarray)(JaxOneHotConformalSet.from_array)
+create_onehot_conformal_set.register((jnp.ndarray, Tracer))(JaxOneHotConformalSet.from_array)
 create_onehot_conformal_set.register(JaxSample)(JaxOneHotConformalSet.from_sample)
-create_interval_conformal_set.register(jnp.ndarray)(JaxIntervalConformalSet.from_arrays)
+create_interval_conformal_set.register((jnp.ndarray, Tracer))(JaxIntervalConformalSet.from_arrays)
 create_interval_conformal_set.register(JaxSample)(JaxIntervalConformalSet.from_samples)

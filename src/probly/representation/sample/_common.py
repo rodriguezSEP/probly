@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, Self
 
@@ -16,6 +16,20 @@ if TYPE_CHECKING:
 
 
 type SampleAxis = int | Literal["auto"]
+
+
+def track_sample_axis_after_broadcast(axes: Iterable[tuple[int, int]], result_ndim: int) -> int | None:
+    """Track aligned sample axes through elementwise broadcasting.
+
+    Args:
+        axes: Pairs of sample axis and dimensionality for the sample operands.
+        result_ndim: The dimensionality of the broadcast result.
+
+    Returns:
+        The broadcast sample axis, or None if the operands disagree.
+    """
+    result_axes = {result_ndim - ndim + axis for axis, ndim in axes}
+    return result_axes.pop() if len(result_axes) == 1 else None
 
 
 class SampleFactory[T, S: Sample](Protocol):
@@ -33,7 +47,7 @@ class SampleFactory[T, S: Sample](Protocol):
         """
 
 
-class Sample[T](Representation, ABC):
+class Sample[T](Representation):
     """Abstract base class for samples."""
 
     @classmethod
