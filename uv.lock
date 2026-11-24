@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12.0"
 resolution-markers = [
     "python_full_version == '3.14.*'",
@@ -2179,15 +2179,36 @@ wheels = [
 
 [[package]]
 name = "ndlike"
-version = "0.2.4"
+version = "0.4.1"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.13'",
+]
 dependencies = [
     { name = "flextype" },
     { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b7/8e/51da76f535301f17e3b46e03f15a0c49ff260ef1b15c5596a8b1ebc14a37/ndlike-0.2.4.tar.gz", hash = "sha256:2356ddb76340c87830c99e4c051df12056784b5f4c4410d84330510cd6b46f5f", size = 54958, upload-time = "2026-10-26T23:36:54.288Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/51/86/a43b5a0498b52e7b4d2c2f994793e997b740b3e31fc16904e091a7184a45/ndlike-0.4.1.tar.gz", hash = "sha256:ea39f1b70615b72b23d29b7f683e7cfdce24d329f466d079aca2afbec723053b", size = 61375, upload-time = "2026-11-12T13:18:01.282Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/84/be/c853597540d0a5f3f9d8c5f5ec48d10a9cc258ed41e84ee7fc4dc0e36248/ndlike-0.2.4-py3-none-any.whl", hash = "sha256:83053a010f2e7b268f323d4e4fba7fde24e39b182a7897d84bd042e424442267", size = 60907, upload-time = "2026-10-26T23:36:52.825Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/dc/5d8c8621b1952d737bc038a976ff26faf4da9ed3050015e125cb4d5e3133/ndlike-0.4.1-py3-none-any.whl", hash = "sha256:25bbc7b43b8ef1630453038866fa297e1287fe8362ac862716a7d5b86f3f583a", size = 66215, upload-time = "2026-11-12T13:18:00.048Z" },
+]
+
+[[package]]
+name = "ndlike"
+version = "0.6.1"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version == '3.14.*'",
+    "python_full_version == '3.13.*'",
+    "python_full_version >= '3.15'",
+]
+dependencies = [
+    { name = "flextype" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9c/43/201ee78c6fc9fad1d2fb086c9a25255054271b6fa10c9a53da7b5dcc7846/ndlike-0.6.1.tar.gz", hash = "sha256:1a56155200496e52f1d799435ea51b64a435b0943730189aa6544206e92c9abf", size = 85348, upload-time = "2026-11-16T19:48:33.657Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c7/24/af23c944e9249b8841ec69715cea044c5869b307e2c8b30170c441526a3c/ndlike-0.6.1-py3-none-any.whl", hash = "sha256:3744d7de5c92b63aaef2cf196466ac38f65dcc5182301162ad10301a8372c170", size = 93279, upload-time = "2026-11-16T19:48:32.182Z" },
 ]
 
 [[package]]
@@ -2726,7 +2747,8 @@ dependencies = [
     { name = "flextype" },
     { name = "matplotlib" },
     { name = "mpltern" },
-    { name = "ndlike" },
+    { name = "ndlike", version = "0.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "ndlike", version = "0.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
     { name = "numpy" },
     { name = "scipy" },
     { name = "tqdm" },
@@ -2835,6 +2857,9 @@ river = [
 sklearn = [
     { name = "scikit-learn" },
 ]
+tabicl = [
+    { name = "tabicl" },
+]
 test = [
     { name = "packaging" },
     { name = "pytest" },
@@ -2866,6 +2891,10 @@ transformers = [
     { name = "torchvision" },
     { name = "transformers" },
 ]
+
+[package.group-requires-python]
+dev = ">=3.13,>=3.13,<3.15,<3.15"
+docs = ">=3.13,<3.15"
 
 [package.metadata]
 requires-dist = [
@@ -2979,6 +3008,7 @@ lint = [
 ]
 river = [{ name = "river", specifier = ">=0.21" }]
 sklearn = [{ name = "scikit-learn", specifier = ">=1.6.0" }]
+tabicl = [{ name = "tabicl", specifier = ">=2.2.0" }]
 test = [
     { name = "packaging" },
     { name = "pytest", specifier = ">=8.3.5" },
@@ -4330,6 +4360,25 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/83/d3/803453b36afefb7c2bb238361cd4ae6125a569b4db67cd9e79846ba2d68c/sympy-1.14.0.tar.gz", hash = "sha256:d3d3fe8df1e5a0b42f0e7bdf50541697dbe7d23746e894990c030e2b05e72517", size = 7793921, upload-time = "2025-04-27T18:05:01.611Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a2/09/77d55d46fd61b4a135c444fc97158ef34a095e5681d0a6c10b75bf356191/sympy-1.14.0-py3-none-any.whl", hash = "sha256:e091cc3e99d2141a0ba2847328f5479b05d94a6635cb96148ccb3f34671bd8f5", size = 6299353, upload-time = "2025-04-27T18:04:59.103Z" },
+]
+
+[[package]]
+name = "tabicl"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "einops" },
+    { name = "huggingface-hub" },
+    { name = "numpy" },
+    { name = "psutil" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+    { name = "torch" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d4/81/ee11ac72b33c2b87f7337c99238fd2700128791edceb558b63bb30556b73/tabicl-2.2.0.tar.gz", hash = "sha256:dfc41f2acd9603e4402cedae9e42f9922cfb8cfc9fcf7901d773e26609e47e21", size = 268084, upload-time = "2026-09-02T15:13:38.59Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/77/22/bbac2df399b8ed5a699bde38496ebb129a045c5d160fe52786727de932f3/tabicl-2.2.0-py3-none-any.whl", hash = "sha256:c80b8ec2719be26bc0bf1dd758a2361f58019d8f7877038b785529a425789ce4", size = 310448, upload-time = "2026-09-02T15:13:36.629Z" },
 ]
 
 [[package]]
