@@ -35,4 +35,3 @@ def fit_resampled_ensemble(estimator, x_train, y_train, k=5, resample="none",see
             idx = np.arange(n)
         m.fit(x_train[idx], y_train[idx])
     return ens
-

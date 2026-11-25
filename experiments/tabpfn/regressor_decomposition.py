@@ -7,7 +7,7 @@ from probly.representation.distribution import (
     NumpyGaussianDistribution,
     NumpyGaussianDistributionSample,
 )
-from _common import fit_resampled_ensemble
+from experiments.tabpfn._common import fit_resampled_ensemble
 
 def to_np(t):
     return t.cpu().numpy() if hasattr(t, "cuda") else np.asarray(t)
@@ -33,4 +33,3 @@ def regressor_decomposition(x_train, y_train, x_test, k=5, resample="none", n_es
     dist = NumpyGaussianDistribution(mean=means, var=vars_)
     sample = NumpyGaussianDistributionSample(dist, sample_axis=0)
     return SecondOrderVarianceDecomposition(sample)
-
