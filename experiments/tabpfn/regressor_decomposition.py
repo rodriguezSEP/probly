@@ -7,7 +7,7 @@ from probly.representation.distribution import (
     NumpyGaussianDistribution,
     NumpyGaussianDistributionSample,
 )
-from _common import fit_resampled_ensemble
+from experiments.tabpfn._common import fit_resampled_ensemble
 
 def to_np(t):
     return t.cpu().numpy() if hasattr(t, "cuda") else np.asarray(t)
