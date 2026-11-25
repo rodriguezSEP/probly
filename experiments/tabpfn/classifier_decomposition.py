@@ -16,4 +16,3 @@ def classifier_decomposition(x_train, y_train, x_test, k=5, resample="none", n_e
     pred = predict(ens, x_test)
     sample = create_sample(pred, sample_axis=0)
     return SecondOrderEntropyDecomposition(sample)
-

@@ -33,4 +33,3 @@ def regressor_decomposition(x_train, y_train, x_test, k=5, resample="none", n_es
     dist = NumpyGaussianDistribution(mean=means, var=vars_)
     sample = NumpyGaussianDistributionSample(dist, sample_axis=0)
     return SecondOrderVarianceDecomposition(sample)
-
